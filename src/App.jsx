@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
-import { signInWithPopup } from "firebase/auth";
-import { auth, googleProvider } from "./firebase.config.js"; 
+import Auth from "./Auth.jsx";
+import { onAuthChange, logout, saveUserData, loadUserData, subscribeUserData } from "./firebase.js";
+
 const TODAY = new Date().toISOString().slice(0,10);
 const THIS_MONTH = TODAY.slice(0,7);
 const APP_VER = "2.1.0";
@@ -22,7 +23,7 @@ const ACHIEVEMENTS = [
   {id:"a5",icon:"📿",en:"Dhikr Master",bn:"যিকর গুরু",check:d=>TB_KEYS.every(k=>(d.tasbeeh?.[TODAY]?.[k]||0)>=33)},
   {id:"a6",icon:"✅",en:"Task Master",bn:"কাজের মাস্টার",check:d=>(d.tasks.today||[]).filter(x=>x.done).length>=5},
 ];
-const INIT = {expenses:{},reading:{sessions:{},quran:{},notes:[]},exercise:{},prayers:{},tasbeeh:{},optPrayers:{},duas:{},tasks:{today:[],tomorrow:[],history:{}},habits:{defs:[...DEF_HABITS],log:{}},journal:{},weights:[],water:{},sleep:{},wasted:{},mood:{},weekly:[],monthly:[],weeklyChallenge:null,challengeProgress:{},monthBudget:0,height:170,readPlan:"",userName:"",email:"",pin:"",unlockedAchievements:[]};
+const INIT = {expenses:{},reading:{sessions:{},quran:{},notes:[]},exercise:{},prayers:{},tasbeeh:{},optPrayers:{},duas:{},tasks:{today:[],tomorrow:[],history:{}},habits:{defs:[...DEF_HABITS],log:{}},journal:{},weights:[],water:{},sleep:{},wasted:{},mood:{},weekly:[],monthly:[],weeklyChallenge:null,challengeProgress:{},monthBudget:0,height:170,readPlan:"",userName:"",pin:"",unlockedAchievements:[]};
 const THEMES = {
   dark:{bg:"#07080f",card:"#13141f",border:"rgba(255,255,255,0.07)",text:"#e2e4f0",muted:"rgba(226,228,240,0.42)",input:"#0a0b14",accent:"#7c6fff",accentB:"#5b4fff",glow:"rgba(124,111,255,0.22)",navBg:"rgba(13,14,25,0.97)"},
   light:{bg:"#f0f2fa",card:"#ffffff",border:"rgba(0,0,0,0.08)",text:"#0f1020",muted:"rgba(15,16,32,0.45)",input:"#f5f6fc",accent:"#6366f1",accentB:"#4f52d9",glow:"rgba(99,102,241,0.18)",navBg:"rgba(255,255,255,0.97)"},
@@ -88,6 +89,43 @@ function SubTabs({tabs,active,onSelect,color}){
 function Empty({icon="📭",text}){
   return <div style={{textAlign:"center",padding:"28px 16px",opacity:.5}}><div style={{fontSize:38,marginBottom:8}}>{icon}</div><div style={{fontSize:13,fontWeight:600}}>{text}</div></div>;
 }
+
+// ── LIVE TIMER (Start/Stop stopwatch) ──────────────────────────────────────────
+function fmtClock(secs){
+  const h=Math.floor(secs/3600),m=Math.floor((secs%3600)/60),s=secs%60;
+  return h>0?`${h}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`:`${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+}
+function fmtTime12(d){return d.toLocaleTimeString("en",{hour:"2-digit",minute:"2-digit"});}
+function LiveTimer({color="var(--accent)",onFinish,labelStart,labelStop}){
+  const [running,sRunning]=useState(false);
+  const [startedAt,sStartedAt]=useState(null);
+  const [elapsed,sElapsed]=useState(0);
+  useEffect(()=>{
+    if(!running)return;
+    const iv=setInterval(()=>sElapsed(e=>e+1),1000);
+    return ()=>clearInterval(iv);
+  },[running]);
+  const start=()=>{const now=new Date();sStartedAt(now);sElapsed(0);sRunning(true);};
+  const stop=()=>{
+    sRunning(false);
+    const endAt=new Date();
+    const mins=Math.max(1,Math.round(elapsed/60));
+    onFinish&&onFinish({startTime:fmtTime12(startedAt),endTime:fmtTime12(endAt),mins});
+    sStartedAt(null);sElapsed(0);
+  };
+  return <div style={{display:"flex",alignItems:"center",gap:11,background:"var(--input)",borderRadius:14,padding:"10px 14px"}}>
+    <div style={{flex:1}}>
+      <div style={{fontSize:20,fontWeight:900,color:running?color:"var(--text)",fontVariantNumeric:"tabular-nums",letterSpacing:.5}}>{fmtClock(elapsed)}</div>
+      {running&&startedAt&&<div style={{fontSize:10,color:"var(--muted)",marginTop:1}}>Started {fmtTime12(startedAt)}</div>}
+    </div>
+    {!running?
+      <button onClick={start} style={{background:color,border:"none",borderRadius:12,padding:"9px 18px",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>▶ {labelStart||"Start"}</button>
+      :
+      <button onClick={stop} style={{background:"#ef4444",border:"none",borderRadius:12,padding:"9px 18px",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>⏹ {labelStop||"Stop"}</button>
+    }
+  </div>;
+}
+
 function Bar({data,color="var(--accent)",h=50}){
   const max=Math.max(...data.map(d=>d.v),1);
   return <div style={{display:"flex",alignItems:"flex-end",gap:4,height:h}}>
@@ -114,38 +152,13 @@ function Onboarding({onDone,lang}){
   const [step,setStep]=useState(0);
   const [name,sN]=useState("");const [height,sH]=useState("170");const [budget,sB]=useState("");const [pin,sP]=useState("");
   const iS={background:"rgba(255,255,255,.07)",border:"1.5px solid rgba(255,255,255,.14)",borderRadius:14,padding:"13px 16px",color:"#fff",fontSize:15,outline:"none",width:"100%",boxSizing:"border-box"};
-  
-  // লজিক: গুগল লগইন হ্যান্ডলার
-  const handleGoogleLogin = () => {
-    signInWithPopup(auth, googleProvider)
-      .then((result) => {
-        sN(result.user.displayName || "");
-        setStep(1); // লগইন হলে নিজে থেকেই পরের ধাপে চলে যাবে
-      })
-      .catch((error) => console.error("Login failed", error));
-  };
-
   const STEPS=[
     {icon:"🌅",title:lang==="bn"?"DailyRise-এ স্বাগতম":"Welcome to DailyRise",sub:lang==="bn"?"প্রতিদিন উন্নত হওয়ার সঙ্গী":"Your daily growth companion"},
     {icon:"⚖️",title:lang==="bn"?"শারীরিক তথ্য":"Body Info",sub:lang==="bn"?"স্বাস্থ্য ট্র্যাক করতে সাহায্য করবে":"Helps track your health"},
     {icon:"🔒",title:lang==="bn"?"নিরাপত্তা":"Security",sub:lang==="bn"?"PIN দিলে App লক হবে (ঐচ্ছিক)":"Optional PIN lock for privacy"},
   ];
   const cur=STEPS[step];const isLast=step===STEPS.length-1;
-  const body=step===0?(<div style={{display:"flex",flexDirection:"column",gap:12}}>
-    <div style={{display:"flex",flexDirection:"column",gap:6}}>
-      <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.5)",textTransform:"uppercase",letterSpacing:".08em"}}>{lang==="bn"?"তোমার নাম":"Your Name"}</span>
-      <input value={name} onChange={e=>sN(e.target.value)} placeholder={lang==="bn"?"যেমন: রাফিক":"e.g. Rafiq"} style={iS}/>
-    </div>
-    <div style={{display:"flex",alignItems:"center",gap:10,margin:"4px 0"}}>
-      <div style={{flex:1,height:1,background:"rgba(255,255,255,0.1)"}}/>
-      <span style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>{lang==="bn"?"অথবা":"OR"}</span>
-      <div style={{flex:1,height:1,background:"rgba(255,255,255,0.1)"}}/>
-    </div>
-    <button onClick={handleGoogleLogin} style={{padding:"11px",borderRadius:12,background:"#fff",color:"#000",border:"none",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,boxShadow:"0 4px 12px rgba(0,0,0,0.1)"}}>
-      <svg width="16" height="16" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-      {lang==="bn"?"Google-এর সাহায্যে চালিয়ে যান":"Continue with Google"}
-    </button>
-  </div>)
+  const body=step===0?(<div style={{display:"flex",flexDirection:"column",gap:6}}><span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.5)",textTransform:"uppercase",letterSpacing:".08em"}}>{lang==="bn"?"তোমার নাম":"Your Name"}</span><input value={name} onChange={e=>sN(e.target.value)} placeholder={lang==="bn"?"যেমন: রাফিক":"e.g. Rafiq"} style={iS}/></div>)
   :step===1?(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}><div style={{display:"flex",flexDirection:"column",gap:6}}><span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.5)",textTransform:"uppercase"}}>{lang==="bn"?"উচ্চতা (সেমি)":"Height (cm)"}</span><input value={height} onChange={e=>sH(e.target.value)} type="number" style={iS}/></div><div style={{display:"flex",flexDirection:"column",gap:6}}><span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.5)",textTransform:"uppercase"}}>{lang==="bn"?"মাসিক বাজেট (৳)":"Monthly Budget"}</span><input value={budget} onChange={e=>sB(e.target.value)} type="number" style={iS}/></div></div>)
   :(<div style={{display:"flex",flexDirection:"column",gap:6}}><span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.5)",textTransform:"uppercase"}}>{"🔒 PIN"}</span><input value={pin} onChange={e=>sP(e.target.value.slice(0,4))} type="password" inputMode="numeric" placeholder="4-digit PIN" style={iS}/><p style={{fontSize:12,color:"rgba(255,255,255,.35)",margin:0,lineHeight:1.5}}>{lang==="bn"?"PIN না দিলে এই ধাপ বাদ দিতে পারো":"Skip if you don't want a PIN"}</p></div>);
   return <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0d0b1e 0%,#1a1040 45%,#0d1a2e 100%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"20px 16px",position:"relative",overflow:"hidden"}}>
@@ -353,10 +366,16 @@ function Expense({data,setData,t}){
 function Reading({data,setData,t}){
   const rt=t.reading;const [sub,setSub]=useState(0);
   const [book,sBook]=useState("");const [author,sAuthor]=useState("");const [genre,sGenre]=useState("");const [mins,sMins]=useState("");const [pages,sPages]=useState("");const [totPages,sTotPages]=useState("");const [note,sNote]=useState("");const [rating,sRating]=useState(0);
+  const [startT,sStartT]=useState("");const [endT,sEndT]=useState("");
   const [surah,sSurah]=useState("");const [qMins,sQMins]=useState("");const [nTitle,sNTitle]=useState("");const [nBody,sNBody]=useState("");const [plan,sPlan]=useState(data.readPlan||"");
   const sessions=data.reading?.sessions?.[TODAY]||[];const quranList=data.reading?.quran?.[TODAY]||[];const notes=data.reading?.notes||[];
   const totalMins=sessions.reduce((s,r)=>s+Number(r.mins),0);const totalPgs=sessions.reduce((s,r)=>s+Number(r.pages||0),0);const avgR=sessions.length?Math.round(sessions.reduce((s,r)=>s+Number(r.rating||0),0)/sessions.length*10)/10:0;
-  const addSess=()=>{if(!book||!mins)return;setData(d=>({...d,reading:{...(d.reading||{}),sessions:{...(d.reading?.sessions||{}),[TODAY]:[...sessions,{id:Date.now(),book,author,genre,mins:Number(mins),pages:Number(pages||0),totPages:Number(totPages||0),note,rating}]}}}));sBook("");sAuthor("");sGenre("");sMins("");sPages("");sTotPages("");sNote("");sRating(0);};
+  const addSess=(timerData)=>{
+    const m=timerData?timerData.mins:Number(mins);
+    if(!book||!m)return;
+    setData(d=>({...d,reading:{...(d.reading||{}),sessions:{...(d.reading?.sessions||{}),[TODAY]:[...sessions,{id:Date.now(),book,author,genre,mins:m,pages:Number(pages||0),totPages:Number(totPages||0),note,rating,startTime:timerData?timerData.startTime:startT,endTime:timerData?timerData.endTime:endT}]}}}));
+    sBook("");sAuthor("");sGenre("");sMins("");sPages("");sTotPages("");sNote("");sRating(0);sStartT("");sEndT("");
+  };
   const delSess=id=>setData(d=>({...d,reading:{...d.reading,sessions:{...d.reading.sessions,[TODAY]:sessions.filter(s=>s.id!==id)}}}));
   const addQ=()=>{if(!surah||!qMins)return;setData(d=>({...d,reading:{...d.reading,quran:{...(d.reading?.quran||{}),[TODAY]:[...quranList,{id:Date.now(),surah,mins:Number(qMins)}]}}}));sSurah("");sQMins("");};
   const delQ=id=>setData(d=>({...d,reading:{...d.reading,quran:{...d.reading.quran,[TODAY]:quranList.filter(q=>q.id!==id)}}}));
@@ -368,13 +387,19 @@ function Reading({data,setData,t}){
     <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:7}}>{[{l:rt.stats.sessions,v:sessions.length,c:"#7c6fff"},{l:rt.stats.pages,v:totalPgs,c:"#10b981"},{l:rt.stats.mins,v:totalMins,c:"#f59e0b"},{l:rt.stats.avgRating,v:avgR||"—",c:"#f97316"}].map((s,i)=><Card key={i} style={{padding:"9px 5px",textAlign:"center"}}><div style={{fontSize:13,fontWeight:800,color:s.c}}>{s.v}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:600}}>{s.l}</div></Card>)}</div>
     <SubTabs tabs={rt.tabs} active={sub} onSelect={setSub} color="#7c6fff"/>
     {sub===0&&<>
+      <Card>
+        <div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>⏱️ Live Timer</div>
+        <LiveTimer color="#7c6fff" onFinish={addSess}/>
+      </Card>
       <Card><div style={{display:"flex",flexDirection:"column",gap:9}}>
+        <div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:-2}}>✍️ Manual Entry</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><FInp label={rt.book} value={book} onChange={e=>sBook(e.target.value)} placeholder="Book title..."/><FInp label={rt.author} value={author} onChange={e=>sAuthor(e.target.value)} placeholder="Author..."/></div>
         <div style={{display:"flex",flexWrap:"wrap",gap:5}}>{rt.genres.map(g=><Pill key={g} label={g} active={genre===g} onClick={()=>sGenre(g)} color="#7c6fff"/>)}</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><FInp label="Start Time" type="time" value={startT} onChange={e=>sStartT(e.target.value)}/><FInp label="End Time" type="time" value={endT} onChange={e=>sEndT(e.target.value)}/></div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9}}><FInp label={rt.mins} type="number" value={mins} onChange={e=>sMins(e.target.value)} placeholder="30"/><FInp label={rt.pages} type="number" value={pages} onChange={e=>sPages(e.target.value)} placeholder="20"/><FInp label={rt.totalPages} type="number" value={totPages} onChange={e=>sTotPages(e.target.value)} placeholder="300"/></div>
         <FTA label={rt.note} value={note} onChange={e=>sNote(e.target.value)} placeholder="Key takeaway..."/>
         <div><span style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase"}}>{rt.rating}</span><div style={{display:"flex",gap:5,marginTop:4}}>{[1,2,3,4,5].map(n=><button key={n} onClick={()=>sRating(n)} style={{fontSize:19,background:"none",border:"none",cursor:"pointer",opacity:rating>=n?1:.2,transition:"opacity .15s"}}>⭐</button>)}</div></div>
-        <Btn onClick={addSess} full color="#7c6fff">+ {rt.add}</Btn>
+        <Btn onClick={()=>addSess(null)} full color="#7c6fff">+ {rt.add}</Btn>
       </div></Card>
       <Card><div style={{fontSize:9,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>{rt.weekChart}</div><Bar data={last7} color="#7c6fff"/></Card>
       <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>📌 {rt.plan_label}</div><div style={{display:"flex",gap:7}}><input value={plan} onChange={e=>sPlan(e.target.value)} placeholder="Tomorrow's book..." style={{...S.inp}} onFocus={e=>e.target.style.borderColor="#7c6fff"} onBlur={e=>e.target.style.borderColor="var(--border)"}/><Btn onClick={()=>setData(d=>({...d,readPlan:plan}))} sz="sm" color="#7c6fff">✓</Btn></div>{data.readPlan&&<div style={{marginTop:6,padding:"6px 10px",background:"#7c6fff18",borderRadius:10,fontSize:12,color:"#7c6fff",fontWeight:600}}>📖 {data.readPlan}</div>}</Card>
@@ -382,7 +407,7 @@ function Reading({data,setData,t}){
       {sessions.map(s=><Card key={s.id} style={{display:"flex",flexDirection:"column",gap:7}}>
         <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
           <div style={{width:36,height:36,borderRadius:11,background:"#7c6fff22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>📖</div>
-          <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.book}</div>{s.author&&<div style={{fontSize:10,color:"var(--muted)"}}>by {s.author}</div>}<div style={{display:"flex",flexWrap:"wrap",gap:3,marginTop:3}}>{s.genre&&<Tag color="#7c6fff">{s.genre.split(" ").slice(1).join(" ")}</Tag>}<Tag color="#f59e0b">{s.mins}m</Tag>{s.pages>0&&<Tag color="#10b981">{s.pages}p</Tag>}{s.rating>0&&<Tag color="#f97316">{"⭐".repeat(s.rating)}</Tag>}</div></div>
+          <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.book}</div>{s.author&&<div style={{fontSize:10,color:"var(--muted)"}}>by {s.author}</div>}<div style={{display:"flex",flexWrap:"wrap",gap:3,marginTop:3}}>{s.genre&&<Tag color="#7c6fff">{s.genre.split(" ").slice(1).join(" ")}</Tag>}<Tag color="#f59e0b">{s.mins}m</Tag>{s.pages>0&&<Tag color="#10b981">{s.pages}p</Tag>}{s.rating>0&&<Tag color="#f97316">{"⭐".repeat(s.rating)}</Tag>}</div>{(s.startTime||s.endTime)&&<div style={{fontSize:10,color:"var(--muted)",marginTop:3}}>🕐 {s.startTime||"—"} → {s.endTime||"—"}</div>}</div>
           <Btn onClick={()=>delSess(s.id)} v="dan" sz="xs">✕</Btn>
         </div>
         {s.note&&<div style={{fontSize:12,color:"var(--muted)",fontStyle:"italic",padding:"5px 9px",background:"var(--input)",borderRadius:9,lineHeight:1.5}}>💡 {s.note}</div>}
@@ -405,9 +430,14 @@ function Reading({data,setData,t}){
 
 // ── EXERCISE ──────────────────────────────────────────────────────────────────
 function Exercise({data,setData,t}){
-  const [type,sT]=useState("");const [mins,sM]=useState("");
+  const [type,sT]=useState("");const [mins,sM]=useState("");const [startT,sStartT]=useState("");const [endT,sEndT]=useState("");
   const list=data.exercise[TODAY]||[];const total=list.reduce((s,e)=>s+Number(e.mins),0);
-  const add=()=>{if(!type||!mins)return;setData(d=>({...d,exercise:{...d.exercise,[TODAY]:[...list,{id:Date.now(),type,mins:Number(mins)}]}}));sT("");sM("");};
+  const add=(timerData)=>{
+    const m=timerData?timerData.mins:Number(mins);
+    if(!type||!m)return;
+    setData(d=>({...d,exercise:{...d.exercise,[TODAY]:[...list,{id:Date.now(),type,mins:m,startTime:timerData?timerData.startTime:startT,endTime:timerData?timerData.endTime:endT}]}}));
+    sT("");sM("");sStartT("");sEndT("");
+  };
   const del=id=>setData(d=>({...d,exercise:{...d.exercise,[TODAY]:list.filter(e=>e.id!==id)}}));
   const last7=Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(6-i));const k=d.toISOString().slice(0,10);return{l:d.toLocaleDateString("en",{weekday:"short"}).slice(0,2),v:(data.exercise[k]||[]).reduce((s,e)=>s+e.mins,0)};});
   return <div style={{display:"flex",flexDirection:"column",gap:11}}>
@@ -416,10 +446,19 @@ function Exercise({data,setData,t}){
       <Card style={{textAlign:"center",background:"linear-gradient(135deg,#f97316,#dc2626)",padding:"13px"}}><div style={{fontSize:10,color:"rgba(255,255,255,.7)",fontWeight:700,textTransform:"uppercase"}}>{t.exercise.total}</div><div style={{fontSize:26,fontWeight:900,color:"#fff"}}>{total}m</div></Card>
       <Card style={{display:"flex",alignItems:"center",justifyContent:"center"}}><Ring pct={Math.min(100,Math.round(total/60*100))} color="#f97316" label="60m goal"/></Card>
     </div>
-    <Card><div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:9}}>{EX_PRE.map(([ic,n])=><Pill key={n} label={`${ic} ${n}`} active={type===n} onClick={()=>sT(n)} color="#f97316"/>)}</div><div style={{display:"grid",gridTemplateColumns:"1.5fr 1fr",gap:9,marginBottom:9}}><FInp label={t.exercise.type} value={type} onChange={e=>sT(e.target.value)} placeholder="Custom..."/><FInp label={t.exercise.mins} type="number" value={mins} onChange={e=>sM(e.target.value)} placeholder="30"/></div><Btn onClick={add} full color="#f97316">+ {t.exercise.add}</Btn></Card>
+    <Card><div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:9}}>{EX_PRE.map(([ic,n])=><Pill key={n} label={`${ic} ${n}`} active={type===n} onClick={()=>sT(n)} color="#f97316"/>)}</div>
+      {type&&<div style={{marginBottom:9}}>
+        <div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>⏱️ Live Timer</div>
+        <LiveTimer color="#f97316" onFinish={add}/>
+      </div>}
+      <div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:-2}}>✍️ Manual Entry</div>
+      <div style={{display:"grid",gridTemplateColumns:"1.5fr 1fr",gap:9,marginTop:9,marginBottom:9}}><FInp label={t.exercise.type} value={type} onChange={e=>sT(e.target.value)} placeholder="Custom..."/><FInp label={t.exercise.mins} type="number" value={mins} onChange={e=>sM(e.target.value)} placeholder="30"/></div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:9}}><FInp label="Start Time" type="time" value={startT} onChange={e=>sStartT(e.target.value)}/><FInp label="End Time" type="time" value={endT} onChange={e=>sEndT(e.target.value)}/></div>
+      <Btn onClick={()=>add(null)} full color="#f97316">+ {t.exercise.add}</Btn>
+    </Card>
     <Card><Bar data={last7} color="#f97316"/></Card>
     {list.length===0&&<Empty icon="🏋️" text={t.emptyState}/>}
-    {list.map(e=>{const p=EX_PRE.find(([,n])=>n===e.type);return <Card key={e.id} style={{display:"flex",alignItems:"center",gap:11}}><div style={{width:36,height:36,borderRadius:11,background:"#f9731622",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{p?p[0]:"🏃"}</div><div style={{flex:1,fontWeight:700}}>{e.type}</div><Tag color="#f97316">{e.mins} min</Tag><Btn onClick={()=>del(e.id)} v="dan" sz="xs">✕</Btn></Card>;})}
+    {list.map(e=>{const p=EX_PRE.find(([,n])=>n===e.type);return <Card key={e.id} style={{display:"flex",alignItems:"center",gap:11}}><div style={{width:36,height:36,borderRadius:11,background:"#f9731622",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{p?p[0]:"🏃"}</div><div style={{flex:1,minWidth:0}}><div style={{fontWeight:700}}>{e.type}</div>{(e.startTime||e.endTime)&&<div style={{fontSize:10,color:"var(--muted)"}}>🕐 {e.startTime||"—"} → {e.endTime||"—"}</div>}</div><Tag color="#f97316">{e.mins} min</Tag><Btn onClick={()=>del(e.id)} v="dan" sz="xs">✕</Btn></Card>;})}
   </div>;
 }
 
@@ -472,8 +511,8 @@ function Prayer({data,setData,t}){
 function Tasks({data,setData,t}){
   const [tab,sTab]=useState("today");const [text,sText]=useState("");const [imp,sImp]=useState(false);const [tmText,sTm]=useState("");
   const today=data.tasks.today||[];const tomorrow=data.tasks.tomorrow||[];const done=today.filter(x=>x.done).length;
-  const addT=()=>{if(!text)return;const u=[...today,{id:Date.now(),text,done:false,imp}];setData(d=>({...d,tasks:{...d.tasks,today:u,history:{...(d.tasks.history||{}),[TODAY]:u}}}));sText("");sImp(false);};
-  const togT=id=>{const u=today.map(x=>x.id===id?{...x,done:!x.done}:x);setData(d=>({...d,tasks:{...d.tasks,today:u,history:{...(d.tasks.history||{}),[TODAY]:u}}}));};
+  const addT=()=>{if(!text)return;const now=new Date();const u=[...today,{id:Date.now(),text,done:false,imp,createdAt:fmtTime12(now)}];setData(d=>({...d,tasks:{...d.tasks,today:u,history:{...(d.tasks.history||{}),[TODAY]:u}}}));sText("");sImp(false);};
+  const togT=id=>{const now=new Date();const u=today.map(x=>x.id===id?{...x,done:!x.done,completedAt:!x.done?fmtTime12(now):null}:x);setData(d=>({...d,tasks:{...d.tasks,today:u,history:{...(d.tasks.history||{}),[TODAY]:u}}}));};
   const delT=id=>{const u=today.filter(x=>x.id!==id);setData(d=>({...d,tasks:{...d.tasks,today:u,history:{...(d.tasks.history||{}),[TODAY]:u}}}));};
   const addTm=()=>{if(!tmText)return;setData(d=>({...d,tasks:{...d.tasks,tomorrow:[...tomorrow,{id:Date.now(),text:tmText,done:false}]}}));sTm("");};
   const delTm=id=>setData(d=>({...d,tasks:{...d.tasks,tomorrow:tomorrow.filter(x=>x.id!==id)}}));
@@ -486,7 +525,10 @@ function Tasks({data,setData,t}){
       {today.length===0&&<Empty icon="✅" text={t.emptyState}/>}
       {today.sort((a,b)=>b.imp-a.imp).map(task=><Card key={task.id} style={{display:"flex",alignItems:"center",gap:11,opacity:task.done?.7:1}}>
         <button onClick={()=>togT(task.id)} style={{width:22,height:22,borderRadius:7,border:`2px solid ${task.done?"#10b981":"var(--border)"}`,background:task.done?"#10b98122":"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,fontSize:11,color:"#10b981"}}>{task.done?"✓":""}</button>
-        <div style={{flex:1,minWidth:0,textDecoration:task.done?"line-through":"none",fontWeight:task.imp?700:500,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.imp&&"⭐ "}{task.text}</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{textDecoration:task.done?"line-through":"none",fontWeight:task.imp?700:500,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.imp&&"⭐ "}{task.text}</div>
+          <div style={{fontSize:10,color:"var(--muted)",marginTop:1}}>{task.createdAt&&`🕐 Added ${task.createdAt}`}{task.completedAt&&` · ✓ ${task.completedAt}`}</div>
+        </div>
         <Tag color={task.done?"#10b981":"#9ca3af"}>{task.done?t.tasks.done:t.tasks.pending}</Tag>
         <Btn onClick={()=>delT(task.id)} v="dan" sz="xs">✕</Btn>
       </Card>)}
@@ -624,46 +666,24 @@ function Stats({data,t,lang}){
 }
 
 // ── SETTINGS ──────────────────────────────────────────────────────────────────
-function Settings({data,setData,t,dark,setDark,lang,setLang}){
+function Settings({data,setData,t,dark,setDark,lang,setLang,user,onLogout}){
   const st=t.settings;const [name,sN]=useState(data.userName||"");const [height,sH]=useState(data.height||"");const [budget,sB]=useState(data.monthBudget||"");const [pin,sP]=useState(data.pin||"");const [resetTxt,sR]=useState("");const [saved,sSaved]=useState(false);
-  
-  // লজিক: সেটিংস থেকে গুগল অ্যাকাউন্ট যুক্ত করা
-  const handleGoogleLogin = () => {
-    signInWithPopup(auth, googleProvider)
-      .then((res) => {
-        sN(res.user.displayName || name);
-        setData(d => ({ ...d, userName: res.user.displayName || name, email: res.user.email }));
-      })
-      .catch((err) => console.error("Login failed", err));
-  };
-
   const saveProfile=()=>{setData(d=>({...d,userName:name,height:Number(height),monthBudget:Number(budget),pin}));sSaved(true);setTimeout(()=>sSaved(false),1500);};
   const exportCSV=()=>{const rows=[["Date","Category","Amount"]];Object.entries(data.expenses).forEach(([date,arr])=>arr.forEach(e=>rows.push([date,e.cat,e.amount])));const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(rows.map(r=>r.join(",")).join("\n"));a.download="dailyrise-expenses.csv";a.click();};
   const copyData=()=>{try{navigator.clipboard.writeText(JSON.stringify(data,null,2));}catch{}};
   return <div style={{display:"flex",flexDirection:"column",gap:13}}>
     <SecHead icon="⚙️" title={st.title}/>
-    <Card>
-      <div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:11}}>👤 {st.profile}</div>
-      <div style={{display:"flex",flexDirection:"column",gap:9}}>
-        
-        {/* গুগল লগইন / ইমেইল সেকশন */}
-        {data.email ? (
-           <div style={{fontSize:12,color:"var(--accent)",fontWeight:600,background:"var(--accent)22",padding:"6px 10px",borderRadius:8,width:"fit-content"}}>📧 {data.email}</div>
-        ) : (
-           <button onClick={handleGoogleLogin} style={{padding:"8px 12px",borderRadius:10,background:"var(--input)",border:"1px solid var(--border)",color:"var(--text)",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6,width:"fit-content",boxShadow:"0 2px 6px rgba(0,0,0,0.05)"}}>
-              <svg width="14" height="14" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-              {lang==="bn"?"Google অ্যাকাউন্ট লিঙ্ক করুন":"Link Google Account"}
-           </button>
-        )}
-
-        <FInp label={st.name} value={name} onChange={e=>sN(e.target.value)} placeholder="Your name"/>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><FInp label={st.height} type="number" value={height} onChange={e=>sH(e.target.value)} placeholder="170"/><FInp label={st.budget} type="number" value={budget} onChange={e=>sB(e.target.value)} placeholder="5000"/></div>
-        <div style={{display:"flex",flexDirection:"column",gap:4}}><span style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase"}}>🔒 {st.pin}</span><input value={pin} onChange={e=>sP(e.target.value.slice(0,4))} type="password" inputMode="numeric" placeholder="4-digit PIN" style={{...S.inp}} onFocus={e=>e.target.style.borderColor="var(--accent)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/></div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}><Btn onClick={saveProfile} full>Save Profile</Btn>{saved&&<span style={{fontSize:12,color:"#10b981",fontWeight:700}}>✓ Saved!</span>}</div>
+    {user&&<Card style={{display:"flex",alignItems:"center",gap:12,background:"linear-gradient(135deg,#7c6fff18,#4c1d95)"}}>
+      {user.photoURL?<img src={user.photoURL} alt="" style={{width:46,height:46,borderRadius:"50%",border:"2px solid rgba(255,255,255,.2)"}}/>:<div style={{width:46,height:46,borderRadius:"50%",background:"linear-gradient(135deg,#7c6fff,#a78bfa)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:800,color:"#fff"}}>{(user.displayName||user.email||"?")[0].toUpperCase()}</div>}
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontWeight:800,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.displayName||"User"}</div>
+        <div style={{fontSize:11,color:"var(--muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.email}</div>
       </div>
-    </Card>
+      <Btn onClick={onLogout} v="dan" sz="sm">Logout</Btn>
+    </Card>}
+    <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:11}}>👤 {st.profile}</div><div style={{display:"flex",flexDirection:"column",gap:9}}><FInp label={st.name} value={name} onChange={e=>sN(e.target.value)} placeholder="Your name"/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><FInp label={st.height} type="number" value={height} onChange={e=>sH(e.target.value)} placeholder="170"/><FInp label={st.budget} type="number" value={budget} onChange={e=>sB(e.target.value)} placeholder="5000"/></div><div style={{display:"flex",flexDirection:"column",gap:4}}><span style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase"}}>🔒 {st.pin}</span><input value={pin} onChange={e=>sP(e.target.value.slice(0,4))} type="password" inputMode="numeric" placeholder="4-digit PIN" style={{...S.inp}} onFocus={e=>e.target.style.borderColor="var(--accent)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/></div><div style={{display:"flex",gap:8,alignItems:"center"}}><Btn onClick={saveProfile} full>Save Profile</Btn>{saved&&<span style={{fontSize:12,color:"#10b981",fontWeight:700}}>✓ Saved!</span>}</div></div></Card>
     <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:10}}>🎨 Appearance</div><div style={{display:"flex",gap:9,marginBottom:9}}><button onClick={()=>setDark(false)} style={{flex:1,padding:"9px",borderRadius:11,border:`2px solid ${!dark?"var(--accent)":"var(--border)"}`,background:!dark?"var(--accent)22":"var(--input)",color:"var(--text)",cursor:"pointer",fontWeight:700,fontSize:13}}>☀️ Light</button><button onClick={()=>setDark(true)} style={{flex:1,padding:"9px",borderRadius:11,border:`2px solid ${dark?"var(--accent)":"var(--border)"}`,background:dark?"var(--accent)22":"var(--input)",color:"var(--text)",cursor:"pointer",fontWeight:700,fontSize:13}}>🌙 Dark</button></div><div style={{display:"flex",gap:9}}><button onClick={()=>setLang("en")} style={{flex:1,padding:"9px",borderRadius:11,border:`2px solid ${lang==="en"?"var(--accent)":"var(--border)"}`,background:lang==="en"?"var(--accent)22":"var(--input)",color:"var(--text)",cursor:"pointer",fontWeight:700,fontSize:13}}>🇬🇧 English</button><button onClick={()=>setLang("bn")} style={{flex:1,padding:"9px",borderRadius:11,border:`2px solid ${lang==="bn"?"var(--accent)":"var(--border)"}`,background:lang==="bn"?"var(--accent)22":"var(--input)",color:"var(--text)",cursor:"pointer",fontWeight:700,fontSize:13}}>🇧🇩 বাংলা</button></div></Card>
-    <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:9}}>☁️ {st.backup}</div><div style={{fontSize:12,color:"#10b981",fontWeight:600}}>✅ {st.backupInfo}</div></Card>
+    <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:9}}>☁️ {st.backup}</div><div style={{fontSize:12,color:"#10b981",fontWeight:600}}>✅ {user?"Synced to your Google account — accessible on any device":st.backupInfo}</div></Card>
     <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:9}}>📤 {st.data}</div><div style={{display:"flex",gap:9,marginBottom:11}}><Btn onClick={exportCSV} v="ghost" full>{t.export.csv}</Btn><Btn onClick={copyData} v="ghost" full>{t.export.copy}</Btn></div><div style={{fontSize:10,fontWeight:700,color:"#ef4444",textTransform:"uppercase",marginBottom:7}}>⚠️ {st.reset}</div><div style={{display:"flex",gap:7}}><input value={resetTxt} onChange={e=>sR(e.target.value)} placeholder={st.resetConfirm} style={{...S.inp,borderColor:resetTxt==="RESET"?"#ef4444":"var(--border)"}} onFocus={e=>e.target.style.borderColor="#ef4444"} onBlur={e=>e.target.style.borderColor="var(--border)"}/><Btn onClick={()=>{if(resetTxt==="RESET"){setData(INIT);sR("");}}} v="dan" disabled={resetTxt!=="RESET"}>Reset</Btn></div></Card>
     <Card style={{textAlign:"center",padding:"11px"}}><div style={{fontSize:11,color:"var(--muted)"}}>🌅 DailyRise v{APP_VER}</div><div style={{fontSize:10,color:"var(--muted)",marginTop:2}}>Built for productivity & growth</div></Card>
   </div>;
@@ -695,16 +715,67 @@ function GoalList({items,setItems,title,icon,color,t,challenge,setData,data,lang
 // ── APP ROOT ──────────────────────────────────────────────────────────────────
 const NAV=[{k:"home",i:"🏠"},{k:"expense",i:"💸"},{k:"reading",i:"📚"},{k:"exercise",i:"🏋️"},{k:"prayer",i:"🕌"},{k:"tasks",i:"✅"},{k:"health",i:"❤️"},{k:"habits",i:"🌱"},{k:"journal",i:"📓"},{k:"timeline",i:"⏰"},{k:"weekly",i:"📅"},{k:"monthly",i:"🎯"},{k:"stats",i:"📊"},{k:"settings",i:"⚙️"}];
 
+function SplashScreen(){
+  return <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0d0b1e 0%,#1a1040 45%,#0d1a2e 100%)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+    <div style={{width:72,height:72,borderRadius:22,background:"linear-gradient(135deg,#6d5fff,#a78bfa)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,boxShadow:"0 8px 32px rgba(109,95,255,.5)",animation:"pulse 1.5s ease-in-out infinite"}}>🌅</div>
+    <style>{`@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.08);opacity:.8}}`}</style>
+  </div>;
+}
+
 export default function App(){
   const [dark,setDark]=usePersist("dr_dark",true);
   const [lang,setLang]=usePersist("dr_lang","bn");
-  const [data,setData]=usePersist("dr_data",INIT);
+  const [data,setDataRaw]=usePersist("dr_data",INIT);
   const [tab,setTab]=useState("home");
   const [unlocked,setUnlocked]=useState(false);
+  const [authChecked,setAuthChecked]=useState(false);
+  const [user,setUser]=useState(null);
+  const [syncStatus,setSyncStatus]=useState("idle"); // idle | syncing | synced | error
+
+  // Listen to Firebase auth state
+  useEffect(()=>{
+    let unsubData=null;
+    const unsubAuth=onAuthChange(async (fbUser)=>{
+      setUser(fbUser);
+      if(fbUser){
+        // Load cloud data once, then subscribe to live updates
+        setSyncStatus("syncing");
+        try{
+          const cloud=await loadUserData(fbUser.uid);
+          if(cloud) setDataRaw(d=>({...INIT,...cloud}));
+          else await saveUserData(fbUser.uid,data); // first login — push local data up
+          setSyncStatus("synced");
+        }catch{ setSyncStatus("error"); }
+        unsubData=subscribeUserData(fbUser.uid,(cloud)=>{
+          setDataRaw(d=>({...INIT,...cloud}));
+        });
+      }
+      setAuthChecked(true);
+    });
+    return ()=>{ unsubAuth(); if(unsubData)unsubData(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+
+  // Wrapped setData: updates local state AND pushes to cloud (debounced via timestamp)
+  const setData=useCallback((fn)=>{
+    setDataRaw(prev=>{
+      const next=typeof fn==="function"?fn(prev):fn;
+      if(user){
+        setSyncStatus("syncing");
+        saveUserData(user.uid,next).then(ok=>setSyncStatus(ok?"synced":"error"));
+      }
+      return next;
+    });
+  },[user,setDataRaw]);
+
   const t=T[lang];const th=dark?THEMES.dark:THEMES.light;
   const cssVars=Object.entries(th).reduce((s,[k,v])=>s+`--${k}:${v};`,"");
-  if(!data.userName) return <Onboarding lang={lang} onDone={profile=>setData(d=>({...d,...profile}))}/>;
+
+  if(!authChecked) return <SplashScreen/>;
+  if(!user) return <Auth lang={lang} onSuccess={(u)=>setUser(u)}/>;
+  if(!data.userName) return <Onboarding lang={lang} onDone={profile=>setData(d=>({...d,...profile,userEmail:user.email,userPhoto:user.photoURL||""}))}/>;
   if(data.pin&&!unlocked) return <PinLock correctPin={data.pin} onUnlock={()=>setUnlocked(true)}/>;
+
   const p={data,setData,t,lang};
   const render=()=>{
     if(tab==="home")    return <Home {...p}/>;
@@ -720,8 +791,9 @@ export default function App(){
     if(tab==="weekly")  return <GoalList {...p} items={data.weekly} setItems={v=>setData(d=>({...d,weekly:v}))} title={t.weekly.title} icon="📅" color="#8b5cf6" challenge data={data} setData={setData}/>;
     if(tab==="monthly") return <GoalList {...p} items={data.monthly} setItems={v=>setData(d=>({...d,monthly:v}))} title={t.monthly.title} icon="🎯" color="#ef4444"/>;
     if(tab==="stats")   return <Stats {...p}/>;
-    if(tab==="settings")return <Settings {...p} dark={dark} setDark={setDark} lang={lang} setLang={setLang}/>;
+    if(tab==="settings")return <Settings {...p} dark={dark} setDark={setDark} lang={lang} setLang={setLang} user={user} onLogout={async()=>{await logout();setUser(null);setUnlocked(false);}}/>;
   };
+  const syncIcon=syncStatus==="syncing"?"🔄":syncStatus==="error"?"⚠️":"☁️";
   return <div style={{fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif",minHeight:"100vh",background:"var(--bg)",color:"var(--text)"}}>
     <style>{`:root{${cssVars}}*{box-sizing:border-box}body{margin:0}input,button,select,textarea{font-family:inherit}::-webkit-scrollbar{display:none}`}</style>
     <div style={{position:"sticky",top:0,zIndex:50,background:"var(--navBg)",borderBottom:"1px solid var(--border)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)"}}>
@@ -730,6 +802,7 @@ export default function App(){
           <div style={{width:26,height:26,borderRadius:8,background:"linear-gradient(135deg,var(--accent),#a78bfa)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>🌅</div>
           <span style={{fontWeight:900,fontSize:16,background:"linear-gradient(135deg,var(--accent),#a78bfa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>DailyRise</span>
         </div>
+        <span title={syncStatus} style={{fontSize:13,opacity:.6}}>{syncIcon}</span>
         <button onClick={()=>setLang(l=>l==="en"?"bn":"en")} style={{background:"var(--input)",border:"1px solid var(--border)",color:"var(--text)",borderRadius:100,padding:"4px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{t.sw}</button>
         <button onClick={()=>setDark(d=>!d)} style={{width:32,height:32,borderRadius:10,background:"var(--input)",border:"1px solid var(--border)",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>{dark?"☀️":"🌙"}</button>
       </div>
