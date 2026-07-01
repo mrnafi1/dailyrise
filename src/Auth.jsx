@@ -4,6 +4,9 @@ import { loginWithGoogle, signUpWithEmail, loginWithEmail, resetPassword } from 
 // ══════════════════════════════════════════════════════════════════════════════
 // AUTH SCREEN — Login / Signup / Forgot Password / Google Sign-in
 // ══════════════════════════════════════════════════════════════════════════════
+
+
+
 export default function Auth({ onSuccess, lang }) {
   const [mode, setMode] = useState("login"); // login | signup | forgot
   const [email, sEmail] = useState("");
