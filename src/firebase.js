@@ -16,6 +16,11 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 const gp = new GoogleAuthProvider();
 
+
+
+
+
+
 export async function loginWithGoogle(){const r=await signInWithPopup(auth,gp);return r.user;}
 export async function signUpWithEmail(email,password,displayName){const r=await createUserWithEmailAndPassword(auth,email,password);if(displayName)await updateProfile(r.user,{displayName});return r.user;}
 export async function loginWithEmail(email,password){const r=await signInWithEmailAndPassword(auth,email,password);return r.user;}
