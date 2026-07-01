@@ -7,7 +7,7 @@
 // 4. Enable Firestore Database → Create database (production mode)
 // 5. Paste your config in the object below
 // ══════════════════════════════════════════════════════════════════════════════
-
+import { firebaseConfig } from './firebase.config.js'
 import { initializeApp } from "firebase/app";
 import {
   getAuth,
@@ -30,12 +30,12 @@ import {
 
 // ── PASTE YOUR FIREBASE CONFIG HERE ─────────────────────────────────────────
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID",
+  apiKey: "AIzaSyBvJowHCuhPB-LHGY1Eo92e6cByGDWu9u0",
+  authDomain: "dailyrise-27cd4.firebaseapp.com",
+  projectId: "dailyrise-27cd4",
+  storageBucket: "dailyrise-27cd4.firebasestorage.app",
+  messagingSenderId: "235731485864",
+  appId: "1:235731485864:web:081bc52e2b0256ac386e9d",
 };
 
 const app = initializeApp(firebaseConfig);
