@@ -1,17 +1,19 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, signOut, onAuthStateChanged, updateProfile } from "firebase/auth";
 import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "firebase/firestore";
-
+// Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyBvJowHCuhPB-LHGY1Eo92e6cByGDWu9u0",
-  authDomain: "dailyrise-27cd4.firebaseapp.com",
-  projectId: "dailyrise-27cd4",
-  storageBucket: "dailyrise-27cd4.firebasestorage.app",
-  messagingSenderId: "235731485864",
-  appId: "1:235731485864:web:081bc52e2b0256ac386e9d"
+  apiKey: "AIzaSyBRLLCBGIUtelsRMBfpprLAK1oRELZB_Cg",
+  authDomain: "dailyrise-new.firebaseapp.com",
+  projectId: "dailyrise-new",
+  storageBucket: "dailyrise-new.firebasestorage.app",
+  messagingSenderId: "312300111547",
+  appId: "1:312300111547:web:b2de035546f44a88bc8b9e"
 };
 
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
+
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 const gp = new GoogleAuthProvider();
