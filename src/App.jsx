@@ -190,25 +190,51 @@ function Home({data,t,setData,lang}){
   </div>;
 }
 
+
 function Expense({data,setData,t}){
-  const [amt,sA]=useState("");const [cat,sC]=useState("");const [budget,sB]=useState(data.monthBudget||"");
+  const [amt,sA]=useState("");const [cat,sC]=useState("");const [budget,sB]=useState(data.monthBudget||"");const [sub,setSub]=useState(0);
   const list=data.expenses[TODAY]||[];const total=list.reduce((s,e)=>s+Number(e.amount),0);
   const monthSpent=Object.entries(data.expenses).filter(([k])=>k.startsWith(THIS_MONTH)).reduce((s,[,arr])=>s+arr.reduce((a,e)=>a+Number(e.amount),0),0);
   const bPct=data.monthBudget?Math.min(100,Math.round(monthSpent/data.monthBudget*100)):0;
   const add=()=>{if(!amt||!cat)return;setData(d=>({...d,expenses:{...d.expenses,[TODAY]:[...list,{id:Date.now(),amount:Number(amt),cat,time:new Date().toLocaleTimeString("en",{hour:"2-digit",minute:"2-digit"})}]}}));sA("");sC("");};
   const del=id=>setData(d=>({...d,expenses:{...d.expenses,[TODAY]:list.filter(e=>e.id!==id)}}));
   const CC=["#7c6fff","#f59e0b","#10b981","#ef4444","#06b6d4","#f97316","#8b5cf6"];
-  const catT=list.reduce((a,e)=>{a[e.cat]=(a[e.cat]||0)+Number(e.amount);return a;},{});
+
+  // History
+  const hist30=Array.from({length:30},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(29-i));const k=d.toISOString().slice(0,10);const items=data.expenses[k]||[];return{date:k,items,total:items.reduce((s,e)=>s+Number(e.amount),0)};}).filter(d=>d.items.length>0).reverse();
+  const hist30total=hist30.reduce((s,d)=>s+d.total,0);
+  const catStats=Object.values(data.expenses).flat().reduce((acc,e)=>{acc[e.cat]=(acc[e.cat]||0)+Number(e.amount);return acc;},{});
+  const chart30=Array.from({length:14},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(13-i));const k=d.toISOString().slice(0,10);return{l:d.toLocaleDateString("en",{day:"numeric"}),v:(data.expenses[k]||[]).reduce((s,e)=>s+Number(e.amount),0)};});
+
+  const TABS=["Today","📅 History"];
   return <div style={{display:"flex",flexDirection:"column",gap:11}}>
     <SecHead icon="💸" title={t.expense.title}/>
     <Card style={{textAlign:"center",background:"linear-gradient(135deg,#f97316,#f59e0b)",padding:"14px"}}><div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,.75)",textTransform:"uppercase"}}>{t.expense.total}</div><div style={{fontSize:32,fontWeight:900,color:"#fff",letterSpacing:-1}}>৳{total.toLocaleString()}</div></Card>
-    <Card><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:9}}><FInp label={t.expense.amount} type="number" value={amt} onChange={e=>sA(e.target.value)} placeholder="0"/><FInp label={t.expense.category} value={cat} onChange={e=>sC(e.target.value)} placeholder="Food..."/></div><div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:9}}>{CAT_PRE.map(c=><Pill key={c} label={c} active={cat===c} onClick={()=>sC(c)} color="#f59e0b"/>)}</div><Btn onClick={add} full>+ {t.expense.add}</Btn></Card>
-    <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:7}}>{t.expense.monthBudget}</div><div style={{display:"flex",gap:7,marginBottom:7}}><input value={budget} onChange={e=>sB(e.target.value)} type="number" placeholder="৳ 5000" style={{...S.inp}} onFocus={e=>e.target.style.borderColor="var(--accent)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/><Btn onClick={()=>setData(d=>({...d,monthBudget:Number(budget)}))} sz="sm">✓</Btn></div>{data.monthBudget>0&&<><div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--muted)",marginBottom:5}}><span>{t.expense.spent}: ৳{monthSpent}</span><span>{t.expense.remaining}: ৳{Math.max(0,data.monthBudget-monthSpent)}</span></div><div style={{background:"var(--border)",borderRadius:100,height:7}}><div style={{height:"100%",borderRadius:100,width:bPct+"%",background:bPct>85?"#ef4444":bPct>60?"#f59e0b":"#10b981",transition:"width .5s"}}/></div><div style={{textAlign:"right",fontSize:10,color:"var(--muted)",marginTop:2}}>{bPct}%</div></>}</Card>
-    {Object.keys(catT).length>0&&<Card><Bar data={Object.entries(catT).map(([l,v])=>({l:l.split(" ").pop().slice(0,5),v}))} color="#f59e0b"/></Card>}
-    {list.length===0&&<Empty icon="💸" text={t.emptyState}/>}
-    {list.map((e,i)=><Card key={e.id} style={{display:"flex",alignItems:"center",gap:11}}><div style={{width:36,height:36,borderRadius:11,background:CC[i%CC.length]+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{e.cat.split(" ")[0]||"💰"}</div><div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.cat}</div><div style={{fontSize:10,color:"var(--muted)"}}>{e.time}</div></div><div style={{fontWeight:800,fontSize:14,color:"#f59e0b",flexShrink:0}}>৳{Number(e.amount).toLocaleString()}</div><Btn onClick={()=>del(e.id)} v="dan" sz="xs">✕</Btn></Card>)}
+    <SubTabs tabs={TABS} active={sub} onSelect={setSub} color="#f59e0b"/>
+    {sub===0&&<>
+      <Card><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:9}}><FInp label={t.expense.amount} type="number" value={amt} onChange={e=>sA(e.target.value)} placeholder="0"/><FInp label={t.expense.category} value={cat} onChange={e=>sC(e.target.value)} placeholder="Food..."/></div><div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:9}}>{CAT_PRE.map(c=><Pill key={c} label={c} active={cat===c} onClick={()=>sC(c)} color="#f59e0b"/>)}</div><Btn onClick={add} full>+ {t.expense.add}</Btn></Card>
+      <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:7}}>{t.expense.monthBudget}</div><div style={{display:"flex",gap:7,marginBottom:7}}><input value={budget} onChange={e=>sB(e.target.value)} type="number" placeholder="৳ 5000" style={{...S.inp}} onFocus={e=>e.target.style.borderColor="var(--accent)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/><Btn onClick={()=>setData(d=>({...d,monthBudget:Number(budget)}))} sz="sm">✓</Btn></div>{data.monthBudget>0&&<><div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--muted)",marginBottom:5}}><span>{t.expense.spent}: ৳{monthSpent}</span><span>{t.expense.remaining}: ৳{Math.max(0,data.monthBudget-monthSpent)}</span></div><div style={{background:"var(--border)",borderRadius:100,height:7}}><div style={{height:"100%",borderRadius:100,width:bPct+"%",background:bPct>85?"#ef4444":bPct>60?"#f59e0b":"#10b981",transition:"width .5s"}}/></div><div style={{textAlign:"right",fontSize:10,color:"var(--muted)",marginTop:2}}>{bPct}%</div></>}</Card>
+      {list.length===0&&<Empty icon="💸" text="No entries yet"/>}
+      {list.map((e,i)=><Card key={e.id} style={{display:"flex",alignItems:"center",gap:11}}><div style={{width:36,height:36,borderRadius:11,background:CC[i%CC.length]+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{e.cat.split(" ")[0]||"💰"}</div><div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.cat}</div><div style={{fontSize:10,color:"var(--muted)"}}>{e.time}</div></div><div style={{fontWeight:800,fontSize:14,color:"#f59e0b",flexShrink:0}}>৳{Number(e.amount).toLocaleString()}</div><Btn onClick={()=>del(e.id)} v="dan" sz="xs">✕</Btn></Card>)}
+    </>}
+    {sub===1&&<>
+      {/* 30-day Expense History */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:14,fontWeight:900,color:"#f59e0b"}}>৳{hist30total.toLocaleString()}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>30d Total</div></Card>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:14,fontWeight:900,color:"#10b981"}}>৳{Math.round(hist30total/30).toLocaleString()}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Daily Avg</div></Card>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:14,fontWeight:900,color:"#7c6fff"}}>{hist30.length}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Active Days</div></Card>
+      </div>
+      <Card><div style={{fontSize:9,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>14-Day Spending</div><Bar data={chart30} color="#f59e0b" h={55}/></Card>
+      {Object.keys(catStats).length>0&&<Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:9}}>By Category</div><Bar data={Object.entries(catStats).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([l,v])=>({l:l.split(" ").pop().slice(0,5),v}))} color="#f59e0b" h={55}/>{Object.entries(catStats).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([cat,amt],i)=><div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid var(--border)",fontSize:12}}><span>{cat}</span><span style={{fontWeight:700,color:"#f59e0b"}}>৳{amt.toLocaleString()}</span></div>)}</Card>}
+      {hist30.length===0&&<Empty icon="💸" text="No expense history yet"/>}
+      {hist30.map((d,i)=><Card key={i} style={{borderLeft:"3px solid #f59e0b"}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:11,color:"var(--muted)",fontWeight:700}}>{d.date}</span><span style={{fontSize:13,fontWeight:800,color:"#f59e0b"}}>৳{d.total.toLocaleString()}</span></div>
+        {d.items.map((e,j)=><div key={j} style={{display:"flex",alignItems:"center",gap:8,marginBottom:j<d.items.length-1?4:0}}><span style={{fontSize:13}}>{e.cat.split(" ")[0]||"💰"}</span><div style={{flex:1,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.cat}</div><span style={{fontSize:12,fontWeight:700,color:"#f59e0b"}}>৳{Number(e.amount).toLocaleString()}</span></div>)}
+      </Card>)}
+    </>}
   </div>;
 }
+
 
 function Reading({data,setData,t}){
   const rt=t.reading;const [sub,setSub]=useState(0);
@@ -224,10 +250,18 @@ function Reading({data,setData,t}){
   const addNote=()=>{if(!nTitle&&!nBody)return;setData(d=>({...d,reading:{...d.reading,notes:[...(d.reading?.notes||[]),{id:Date.now(),title:nTitle,body:nBody,date:TODAY}]}}));sNTitle("");sNBody("");};
   const delNote=id=>setData(d=>({...d,reading:{...d.reading,notes:(d.reading?.notes||[]).filter(n=>n.id!==id)}}));
   const last7=Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(6-i));const k=d.toISOString().slice(0,10);return{l:d.toLocaleDateString("en",{weekday:"short"}).slice(0,2),v:(data.reading?.sessions?.[k]||[]).reduce((s,r)=>s+r.mins,0)};});
+
+  // 30-day history
+  const hist30=Array.from({length:30},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(29-i));const k=d.toISOString().slice(0,10);return{date:k,sessions:(data.reading?.sessions?.[k]||[]),quran:(data.reading?.quran?.[k]||[])};}).filter(d=>d.sessions.length>0||d.quran.length>0).reverse();
+  const hist30mins=hist30.reduce((s,d)=>s+d.sessions.reduce((a,r)=>a+r.mins,0),0);
+  const hist30pages=hist30.reduce((s,d)=>s+d.sessions.reduce((a,r)=>a+(r.pages||0),0),0);
+  const allBooks=[...new Set(Object.values(data.reading?.sessions||{}).flat().map(r=>r.book))].filter(Boolean);
+
+  const TABS=[...rt.tabs,"📅 History"];
   return <div style={{display:"flex",flexDirection:"column",gap:11}}>
     <SecHead icon="📚" title={rt.title}/>
     <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:7}}>{[{l:rt.stats.sessions,v:sessions.length,c:"#7c6fff"},{l:rt.stats.pages,v:totalPgs,c:"#10b981"},{l:rt.stats.mins,v:totalMins,c:"#f59e0b"},{l:rt.stats.avgRating,v:avgR||"—",c:"#f97316"}].map((s,i)=><Card key={i} style={{padding:"9px 5px",textAlign:"center"}}><div style={{fontSize:13,fontWeight:800,color:s.c}}>{s.v}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:600}}>{s.l}</div></Card>)}</div>
-    <SubTabs tabs={rt.tabs} active={sub} onSelect={setSub} color="#7c6fff"/>
+    <SubTabs tabs={TABS} active={sub} onSelect={setSub} color="#7c6fff"/>
     {sub===0&&<>
       <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>⏱️ Live Timer</div><LiveTimer color="#7c6fff" onFinish={addSess}/></Card>
       <Card><div style={{display:"flex",flexDirection:"column",gap:9}}>
@@ -242,49 +276,91 @@ function Reading({data,setData,t}){
       </div></Card>
       <Card><div style={{fontSize:9,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>{rt.weekChart}</div><Bar data={last7} color="#7c6fff"/></Card>
       <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>📌 {rt.plan_label}</div><div style={{display:"flex",gap:7}}><input value={plan} onChange={e=>sPlan(e.target.value)} placeholder="Tomorrow's book..." style={{...S.inp}} onFocus={e=>e.target.style.borderColor="#7c6fff"} onBlur={e=>e.target.style.borderColor="var(--border)"}/><Btn onClick={()=>setData(d=>({...d,readPlan:plan}))} sz="sm" color="#7c6fff">✓</Btn></div>{data.readPlan&&<div style={{marginTop:6,padding:"6px 10px",background:"#7c6fff18",borderRadius:10,fontSize:12,color:"#7c6fff",fontWeight:600}}>📖 {data.readPlan}</div>}</Card>
-      {sessions.length===0&&<Empty icon="📚" text={t.emptyState}/>}
+      {sessions.length===0&&<Empty icon="📚" text="No entries yet"/>}
       {sessions.map(s=><Card key={s.id} style={{display:"flex",flexDirection:"column",gap:7}}>
-        <div style={{display:"flex",alignItems:"flex-start",gap:10}}><div style={{width:36,height:36,borderRadius:11,background:"#7c6fff22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>📖</div>
-        <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.book}</div>{s.author&&<div style={{fontSize:10,color:"var(--muted)"}}>by {s.author}</div>}<div style={{display:"flex",flexWrap:"wrap",gap:3,marginTop:3}}>{s.genre&&<Tag color="#7c6fff">{s.genre.split(" ").slice(1).join(" ")}</Tag>}<Tag color="#f59e0b">{s.mins}m</Tag>{s.pages>0&&<Tag color="#10b981">{s.pages}p</Tag>}{s.rating>0&&<Tag color="#f97316">{"⭐".repeat(s.rating)}</Tag>}</div>{(s.startTime||s.endTime)&&<div style={{fontSize:10,color:"var(--muted)",marginTop:3}}>🕐 {s.startTime||"—"} → {s.endTime||"—"}</div>}</div>
-        <Btn onClick={()=>delSess(s.id)} v="dan" sz="xs">✕</Btn></div>
+        <div style={{display:"flex",alignItems:"flex-start",gap:10}}><div style={{width:36,height:36,borderRadius:11,background:"#7c6fff22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>📖</div><div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.book}</div>{s.author&&<div style={{fontSize:10,color:"var(--muted)"}}>by {s.author}</div>}<div style={{display:"flex",flexWrap:"wrap",gap:3,marginTop:3}}>{s.genre&&<Tag color="#7c6fff">{s.genre.split(" ").slice(1).join(" ")}</Tag>}<Tag color="#f59e0b">{s.mins}m</Tag>{s.pages>0&&<Tag color="#10b981">{s.pages}p</Tag>}{s.rating>0&&<Tag color="#f97316">{"⭐".repeat(s.rating)}</Tag>}</div>{(s.startTime||s.endTime)&&<div style={{fontSize:10,color:"var(--muted)",marginTop:3}}>🕐 {s.startTime||"—"} → {s.endTime||"—"}</div>}</div><Btn onClick={()=>delSess(s.id)} v="dan" sz="xs">✕</Btn></div>
         {s.note&&<div style={{fontSize:12,color:"var(--muted)",fontStyle:"italic",padding:"5px 9px",background:"var(--input)",borderRadius:9,lineHeight:1.5}}>💡 {s.note}</div>}
         {s.totPages>0&&<div><div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--muted)",marginBottom:3}}><span>{rt.progress}</span><span>{s.pages}/{s.totPages} ({Math.round(s.pages/s.totPages*100)}%)</span></div><div style={{background:"var(--border)",borderRadius:100,height:4}}><div style={{height:"100%",borderRadius:100,width:Math.round(s.pages/s.totPages*100)+"%",background:"#7c6fff"}}/></div></div>}
       </Card>)}
     </>}
     {sub===1&&<>
       <Card style={{background:"linear-gradient(135deg,#10b98118,#064e3b)"}}><div style={{textAlign:"center",marginBottom:10}}><div style={{fontSize:24}}>📖</div><div style={{fontWeight:900,fontSize:14,color:"#10b981",marginTop:3}}>Quran Tilawat</div><div style={{fontSize:12,color:"rgba(255,255,255,.5)",marginTop:1}}>{quranList.reduce((s,q)=>s+Number(q.mins),0)} min today</div></div><div style={{display:"grid",gridTemplateColumns:"1.5fr 1fr",gap:9,marginBottom:9}}><FInp label={rt.quranSurah} value={surah} onChange={e=>sSurah(e.target.value)} placeholder="Al-Baqarah 1-10"/><FInp label={rt.quranMins} type="number" value={qMins} onChange={e=>sQMins(e.target.value)} placeholder="20"/></div><Btn onClick={addQ} full color="#10b981">+ {rt.addQuran}</Btn></Card>
-      {quranList.length===0&&<Empty icon="📖" text={t.emptyState}/>}
+      {quranList.length===0&&<Empty icon="📖" text="No entries yet"/>}
       {quranList.map(q=><Card key={q.id} style={{display:"flex",alignItems:"center",gap:11}}><div style={{width:36,height:36,borderRadius:11,background:"#10b98122",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>📖</div><div style={{flex:1,minWidth:0,fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{q.surah}</div><Tag color="#10b981">{q.mins} min</Tag><Btn onClick={()=>delQ(q.id)} v="dan" sz="xs">✕</Btn></Card>)}
     </>}
     {sub===2&&<>
       <Card><div style={{display:"flex",flexDirection:"column",gap:9}}><FInp label={rt.noteTitle} value={nTitle} onChange={e=>sNTitle(e.target.value)} placeholder="Title..."/><FTA label={rt.noteBody} value={nBody} onChange={e=>sNBody(e.target.value)} placeholder="Notes..."/><Btn onClick={addNote} full color="#7c6fff">+ {rt.addNote}</Btn></div></Card>
       <div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase"}}>{rt.allNotes} ({notes.length})</div>
-      {notes.length===0&&<Empty icon="📝" text={t.emptyState}/>}
+      {notes.length===0&&<Empty icon="📝" text="No entries yet"/>}
       {notes.slice().reverse().map(n=><Card key={n.id}><div style={{display:"flex",alignItems:"flex-start",gap:10}}><div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:13,marginBottom:3}}>{n.title||"Untitled"}</div><div style={{fontSize:12,color:"var(--muted)",lineHeight:1.5}}>{n.body}</div><div style={{fontSize:10,color:"var(--muted)",marginTop:5}}>{n.date}</div></div><Btn onClick={()=>delNote(n.id)} v="dan" sz="xs">✕</Btn></div></Card>)}
+    </>}
+    {sub===3&&<>
+      {/* 30-day Reading History */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:18,fontWeight:900,color:"#7c6fff"}}>{hist30mins}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Total Min</div></Card>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:18,fontWeight:900,color:"#10b981"}}>{hist30pages}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Total Pages</div></Card>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:18,fontWeight:900,color:"#f59e0b"}}>{allBooks.length}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Books</div></Card>
+      </div>
+      <Card><div style={{fontSize:9,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>30-Day Reading (min)</div><Bar data={Array.from({length:14},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(13-i));const k=d.toISOString().slice(0,10);return{l:d.toLocaleDateString("en",{day:"numeric"}),v:(data.reading?.sessions?.[k]||[]).reduce((s,r)=>s+r.mins,0)};}).filter((_,i)=>i%1===0)} color="#7c6fff" h={55}/></Card>
+      {allBooks.length>0&&<Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:9}}>📚 Books Read</div>{allBooks.slice(0,10).map((b,i)=><div key={i} style={{padding:"6px 0",borderBottom:"1px solid var(--border)",fontSize:13,display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:15}}>📖</span><span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b}</span></div>)}</Card>}
+      {hist30.length===0&&<Empty icon="📚" text="No reading history yet"/>}
+      {hist30.map((d,i)=><Card key={i} style={{borderLeft:"3px solid #7c6fff"}}>
+        <div style={{fontSize:11,color:"var(--muted)",fontWeight:700,marginBottom:6}}>{d.date}</div>
+        {d.sessions.map((s,j)=><div key={j} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}><span style={{fontSize:13}}>📖</span><div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.book}</div><div style={{display:"flex",gap:4,marginTop:2}}><Tag color="#f59e0b">{s.mins}m</Tag>{s.pages>0&&<Tag color="#10b981">{s.pages}p</Tag>}{s.rating>0&&<Tag color="#f97316">{"⭐".repeat(s.rating)}</Tag>}</div></div></div>)}
+        {d.quran.map((q,j)=><div key={"q"+j} style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:13}}>🕌</span><div style={{flex:1,fontSize:13,fontWeight:600}}>{q.surah}</div><Tag color="#10b981">{q.mins}m</Tag></div>)}
+      </Card>)}
     </>}
   </div>;
 }
 
+
 function Exercise({data,setData,t}){
-  const [type,sT]=useState("");const [mins,sM]=useState("");const [startT,sStartT]=useState("");const [endT,sEndT]=useState("");
+  const [type,sT]=useState("");const [mins,sM]=useState("");const [startT,sStartT]=useState("");const [endT,sEndT]=useState("");const [sub,setSub]=useState(0);
   const list=data.exercise[TODAY]||[];const total=list.reduce((s,e)=>s+Number(e.mins),0);
   const add=(td)=>{const m=td?td.mins:Number(mins);if(!type||!m)return;setData(d=>({...d,exercise:{...d.exercise,[TODAY]:[...list,{id:Date.now(),type,mins:m,startTime:td?td.startTime:startT,endTime:td?td.endTime:endT}]}}));sT("");sM("");sStartT("");sEndT("");};
   const del=id=>setData(d=>({...d,exercise:{...d.exercise,[TODAY]:list.filter(e=>e.id!==id)}}));
   const last7=Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(6-i));const k=d.toISOString().slice(0,10);return{l:d.toLocaleDateString("en",{weekday:"short"}).slice(0,2),v:(data.exercise[k]||[]).reduce((s,e)=>s+e.mins,0)};});
+
+  // 30-day history
+  const hist30=Array.from({length:30},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(29-i));const k=d.toISOString().slice(0,10);return{date:k,items:data.exercise[k]||[]};}).filter(d=>d.items.length>0).reverse();
+  const hist30mins=hist30.reduce((s,d)=>s+d.items.reduce((a,e)=>a+e.mins,0),0);
+  const hist30days=hist30.length;
+  const typeStats=Object.values(data.exercise).flat().reduce((acc,e)=>{acc[e.type]=(acc[e.type]||0)+e.mins;return acc;},{});
+  const chart30=Array.from({length:14},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(13-i));const k=d.toISOString().slice(0,10);return{l:d.toLocaleDateString("en",{day:"numeric"}),v:(data.exercise[k]||[]).reduce((s,e)=>s+e.mins,0)};});
+
+  const TABS=["Today","📅 History"];
   return <div style={{display:"flex",flexDirection:"column",gap:11}}>
     <SecHead icon="🏋️" title={t.exercise.title}/>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}><Card style={{textAlign:"center",background:"linear-gradient(135deg,#f97316,#dc2626)",padding:"13px"}}><div style={{fontSize:10,color:"rgba(255,255,255,.7)",fontWeight:700,textTransform:"uppercase"}}>{t.exercise.total}</div><div style={{fontSize:26,fontWeight:900,color:"#fff"}}>{total}m</div></Card><Card style={{display:"flex",alignItems:"center",justifyContent:"center"}}><Ring pct={Math.min(100,Math.round(total/60*100))} color="#f97316" label="60m goal"/></Card></div>
-    <Card>
-      <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:9}}>{EX_PRE.map(([ic,n])=><Pill key={n} label={`${ic} ${n}`} active={type===n} onClick={()=>sT(n)} color="#f97316"/>)}</div>
-      {type&&<div style={{marginBottom:9}}><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>⏱️ Live Timer</div><LiveTimer color="#f97316" onFinish={add}/></div>}
-      <div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:9}}>✍️ Manual</div>
-      <div style={{display:"grid",gridTemplateColumns:"1.5fr 1fr",gap:9,marginBottom:9}}><FInp label={t.exercise.type} value={type} onChange={e=>sT(e.target.value)} placeholder="Custom..."/><FInp label={t.exercise.mins} type="number" value={mins} onChange={e=>sM(e.target.value)} placeholder="30"/></div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:9}}><FInp label="Start Time" type="time" value={startT} onChange={e=>sStartT(e.target.value)}/><FInp label="End Time" type="time" value={endT} onChange={e=>sEndT(e.target.value)}/></div>
-      <Btn onClick={()=>add(null)} full color="#f97316">+ {t.exercise.add}</Btn>
-    </Card>
-    <Card><Bar data={last7} color="#f97316"/></Card>
-    {list.length===0&&<Empty icon="🏋️" text={t.emptyState}/>}
-    {list.map(e=>{const p=EX_PRE.find(([,n])=>n===e.type);return <Card key={e.id} style={{display:"flex",alignItems:"center",gap:11}}><div style={{width:36,height:36,borderRadius:11,background:"#f9731622",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{p?p[0]:"🏃"}</div><div style={{flex:1,minWidth:0}}><div style={{fontWeight:700}}>{e.type}</div>{(e.startTime||e.endTime)&&<div style={{fontSize:10,color:"var(--muted)"}}>🕐 {e.startTime||"—"} → {e.endTime||"—"}</div>}</div><Tag color="#f97316">{e.mins} min</Tag><Btn onClick={()=>del(e.id)} v="dan" sz="xs">✕</Btn></Card>;})}
+    <SubTabs tabs={TABS} active={sub} onSelect={setSub} color="#f97316"/>
+    {sub===0&&<>
+      <Card>
+        <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:9}}>{EX_PRE.map(([ic,n])=><Pill key={n} label={`${ic} ${n}`} active={type===n} onClick={()=>sT(n)} color="#f97316"/>)}</div>
+        {type&&<div style={{marginBottom:9}}><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>⏱️ Live Timer</div><LiveTimer color="#f97316" onFinish={add}/></div>}
+        <div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:9}}>✍️ Manual</div>
+        <div style={{display:"grid",gridTemplateColumns:"1.5fr 1fr",gap:9,marginBottom:9}}><FInp label={t.exercise.type} value={type} onChange={e=>sT(e.target.value)} placeholder="Custom..."/><FInp label={t.exercise.mins} type="number" value={mins} onChange={e=>sM(e.target.value)} placeholder="30"/></div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:9}}><FInp label="Start Time" type="time" value={startT} onChange={e=>sStartT(e.target.value)}/><FInp label="End Time" type="time" value={endT} onChange={e=>sEndT(e.target.value)}/></div>
+        <Btn onClick={()=>add(null)} full color="#f97316">+ {t.exercise.add}</Btn>
+      </Card>
+      <Card><Bar data={last7} color="#f97316"/></Card>
+      {list.length===0&&<Empty icon="🏋️" text="No entries yet"/>}
+      {list.map(e=>{const p=EX_PRE.find(([,n])=>n===e.type);return <Card key={e.id} style={{display:"flex",alignItems:"center",gap:11}}><div style={{width:36,height:36,borderRadius:11,background:"#f9731622",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{p?p[0]:"🏃"}</div><div style={{flex:1,minWidth:0}}><div style={{fontWeight:700}}>{e.type}</div>{(e.startTime||e.endTime)&&<div style={{fontSize:10,color:"var(--muted)"}}>🕐 {e.startTime||"—"} → {e.endTime||"—"}</div>}</div><Tag color="#f97316">{e.mins} min</Tag><Btn onClick={()=>del(e.id)} v="dan" sz="xs">✕</Btn></Card>;})}
+    </>}
+    {sub===1&&<>
+      {/* 30-day Exercise History */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:18,fontWeight:900,color:"#f97316"}}>{hist30mins}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Total Min</div></Card>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:18,fontWeight:900,color:"#10b981"}}>{hist30days}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Active Days</div></Card>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:18,fontWeight:900,color:"#7c6fff"}}>{Math.round(hist30mins/(hist30days||1))}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Avg Min/Day</div></Card>
+      </div>
+      <Card><div style={{fontSize:9,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>14-Day Exercise (min)</div><Bar data={chart30} color="#f97316" h={55}/></Card>
+      {Object.keys(typeStats).length>0&&<Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:9}}>By Exercise Type</div><Bar data={Object.entries(typeStats).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([l,v])=>({l:l.slice(0,6),v}))} color="#f97316" h={55}/></Card>}
+      {hist30.length===0&&<Empty icon="🏋️" text="No exercise history yet"/>}
+      {hist30.map((d,i)=><Card key={i} style={{borderLeft:"3px solid #f97316"}}>
+        <div style={{fontSize:11,color:"var(--muted)",fontWeight:700,marginBottom:6}}>{d.date} · {d.items.reduce((s,e)=>s+e.mins,0)} min total</div>
+        {d.items.map((e,j)=>{const p=EX_PRE.find(([,n])=>n===e.type);return <div key={j} style={{display:"flex",alignItems:"center",gap:8,marginBottom:j<d.items.length-1?6:0}}><span style={{fontSize:15}}>{p?p[0]:"🏃"}</span><div style={{flex:1,fontSize:13,fontWeight:600}}>{e.type}</div>{(e.startTime||e.endTime)&&<span style={{fontSize:10,color:"var(--muted)"}}>🕐{e.startTime}→{e.endTime}</span>}<Tag color="#f97316">{e.mins}m</Tag></div>;})}
+      </Card>)}
+    </>}
   </div>;
 }
 
@@ -371,28 +447,99 @@ function Tasks({data,setData,t,lang}){
   </div>;
 }
 
+
 function Health({data,setData,t}){
   const [wt,sWt]=useState("");const [dt,sDt]=useState(TODAY);const [ht,sHt]=useState(data.height||"");
-  const [slp,sSlp]=useState("");const [wMin,sWMin]=useState("");const [wR,sWR]=useState("");const [mood,sMood]=useState(data.mood[TODAY]||"");
+  const [slp,sSlp]=useState("");const [wMin,sWMin]=useState("");const [wR,sWR]=useState("");const [mood,sMood]=useState(data.mood[TODAY]||"");const [sub,setSub]=useState(0);
   const water=data.water[TODAY]||0;
   const addW=delta=>{const n=Math.max(0,(data.water[TODAY]||0)+delta);setData(d=>({...d,water:{...d.water,[TODAY]:n}}));};
   const addSlp=()=>{if(!slp)return;setData(d=>({...d,sleep:{...d.sleep,[TODAY]:{hours:Number(slp)}}}));sSlp("");};
   const addWasted=()=>{if(!wMin)return;setData(d=>({...d,wasted:{...d.wasted,[TODAY]:[...(d.wasted[TODAY]||[]),{id:Date.now(),min:Number(wMin),reason:wR}]}}));sWMin("");sWR("");};
   const setMoodF=m=>{sMood(m);setData(d=>({...d,mood:{...d.mood,[TODAY]:m}}));};
   const addWt=()=>{if(!wt)return;const u=[...(data.weights||[]).filter(w=>w.date!==dt),{date:dt,weight:Number(wt)}].sort((a,b)=>a.date.localeCompare(b.date));setData(d=>({...d,weights:u}));sWt("");};
+  const delWt=date=>setData(d=>({...d,weights:(d.weights||[]).filter(w=>w.date!==date)}));
   const wastedTotal=(data.wasted[TODAY]||[]).reduce((s,w)=>s+Number(w.min),0);
   const weights=data.weights||[];const latestW=weights[weights.length-1]?.weight;
   const bmi=latestW&&data.height?(latestW/((data.height/100)**2)).toFixed(1):null;
   const bmiC=!bmi?"var(--muted)":bmi<18.5?"#06b6d4":bmi<25?"#10b981":bmi<30?"#f59e0b":"#ef4444";
   const bmiL=!bmi?"":bmi<18.5?"Underweight":bmi<25?"Normal ✅":bmi<30?"Overweight":"Obese ⚠️";
+
+  // History data
+  const last30days=Array.from({length:30},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(29-i));return d.toISOString().slice(0,10);});
+  const sleepHist=last30days.map(k=>({date:k,hours:data.sleep[k]?.hours||0})).filter(d=>d.hours>0).reverse();
+  const avgSleep=sleepHist.length?Math.round(sleepHist.reduce((s,d)=>s+d.hours,0)/sleepHist.length*10)/10:0;
+  const wastedHist=last30days.map(k=>{const items=data.wasted[k]||[];return{date:k,total:items.reduce((s,w)=>s+Number(w.min),0),items};}).filter(d=>d.total>0).reverse();
+  const avgWasted=wastedHist.length?Math.round(wastedHist.reduce((s,d)=>s+d.total,0)/wastedHist.length):0;
+  const waterHist=last30days.map(k=>({date:k,glasses:data.water[k]||0})).filter(d=>d.glasses>0).reverse();
+  const avgWater=waterHist.length?Math.round(waterHist.reduce((s,d)=>s+d.glasses,0)/waterHist.length*10)/10:0;
+  const sleepChartData=Array.from({length:14},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(13-i));const k=d.toISOString().slice(0,10);return{l:d.toLocaleDateString("en",{day:"numeric"}),v:data.sleep[k]?.hours||0};});
+  const wastedChartData=Array.from({length:14},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(13-i));const k=d.toISOString().slice(0,10);return{l:d.toLocaleDateString("en",{day:"numeric"}),v:(data.wasted[k]||[]).reduce((s,w)=>s+Number(w.min),0)};});
+
+  const TABS=["Today","😴 Sleep","⚖️ Weight","⏱️ Wasted","💧 Water"];
   return <div style={{display:"flex",flexDirection:"column",gap:11}}>
     <SecHead icon="❤️" title={t.health.title}/>
-    <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>😊 {t.health.mood}</div><div style={{display:"flex",justifyContent:"space-around"}}>{Object.entries(MOOD_META).map(([k,{c,e}])=><button key={k} onClick={()=>setMoodF(k)} style={{fontSize:26,background:mood===k?c+"22":"transparent",border:`2px solid ${mood===k?c:"transparent"}`,borderRadius:12,padding:5,cursor:"pointer",transition:"all .15s"}}>{e}</button>)}</div>{mood&&<div style={{textAlign:"center",marginTop:7,fontSize:12,fontWeight:700,color:MOOD_META[mood].c}}>{t.moods[mood]}</div>}</Card>
-    <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>💧 {t.health.water}</div><div style={{display:"flex",alignItems:"center",gap:11}}><Btn onClick={()=>addW(-1)} v="ghost" sz="sm">−</Btn><div style={{flex:1,textAlign:"center"}}><div style={{fontSize:22,fontWeight:900,color:"#06b6d4"}}>{water}<span style={{fontSize:12,fontWeight:600,opacity:.6}}>/8</span></div><div style={{fontSize:10,color:"var(--muted)"}}>glasses</div></div><Btn onClick={()=>addW(1)} sz="sm" color="#06b6d4">+</Btn></div><div style={{display:"flex",gap:4,marginTop:8}}>{Array.from({length:8},(_,i)=><div key={i} onClick={()=>setData(d=>({...d,water:{...d.water,[TODAY]:i+1}}))} style={{flex:1,height:7,borderRadius:100,background:i<water?"#06b6d4":"var(--input)",transition:"background .2s",cursor:"pointer"}}/>)}</div></Card>
-    <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>😴 {t.health.sleep}</div><div style={{display:"flex",gap:7}}><input value={slp} onChange={e=>sSlp(e.target.value)} type="number" step=".5" placeholder="7.5" style={{...S.inp}} onFocus={e=>e.target.style.borderColor="#8b5cf6"} onBlur={e=>e.target.style.borderColor="var(--border)"}/><Btn onClick={addSlp} color="#8b5cf6">Log</Btn></div>{data.sleep[TODAY]&&<div style={{marginTop:7,padding:"6px 10px",background:"#8b5cf620",borderRadius:9,fontSize:12,color:"#8b5cf6",fontWeight:600}}>Last: {data.sleep[TODAY].hours}h 😴</div>}</Card>
-    <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>⏱️ {t.health.wasted}</div><div style={{display:"grid",gridTemplateColumns:"1fr 1.5fr",gap:8,marginBottom:8}}><FInp label={t.health.mins} type="number" value={wMin} onChange={e=>sWMin(e.target.value)} placeholder="30"/><FInp label={t.health.reason} value={wR} onChange={e=>sWR(e.target.value)} placeholder="Social media..."/></div><Btn onClick={addWasted} full color="#ef4444">+ Log</Btn>{wastedTotal>0&&<div style={{marginTop:7,padding:"6px 10px",background:"#ef444420",borderRadius:9,fontSize:12,color:"#ef4444",fontWeight:700}}>Total: {wastedTotal} min ⚠️</div>}</Card>
-    <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>⚖️ {t.health.weight}</div><div style={{display:"flex",gap:7,marginBottom:8}}><input value={ht} onChange={e=>sHt(e.target.value)} type="number" placeholder={t.health.height} style={{...S.inp}} onFocus={e=>e.target.style.borderColor="var(--accent)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/><Btn onClick={()=>setData(d=>({...d,height:Number(ht)}))} v="ghost" sz="sm">✓</Btn></div><div style={{display:"grid",gridTemplateColumns:"1.2fr 1fr",gap:8,marginBottom:8}}><FInp label={t.health.weight} type="number" value={wt} onChange={e=>sWt(e.target.value)} placeholder="65.5"/><FInp label="Date" type="date" value={dt} onChange={e=>sDt(e.target.value)}/></div><Btn onClick={addWt} full color="#8b5cf6">+ {t.health.addWeight}</Btn>{bmi&&<div style={{marginTop:8,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:"var(--input)",borderRadius:11}}><span style={{fontWeight:700}}>{t.health.bmi}: <span style={{color:bmiC,fontSize:16}}>{bmi}</span></span><Tag color={bmiC}>{bmiL}</Tag></div>}</Card>
-    {weights.length>1&&<Card><div style={{fontSize:9,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>📈 {t.health.history}</div><Bar data={weights.slice(-8).map(w=>({l:w.date.slice(5),v:w.weight}))} color="#8b5cf6" h={55}/><div style={{display:"flex",justifyContent:"space-between",marginTop:6,fontSize:11,color:"var(--muted)"}}><span>Start: {weights[0].weight}kg</span><span>Now: {latestW}kg</span><span style={{color:latestW-weights[0].weight>0?"#ef4444":"#10b981"}}>{latestW>weights[0].weight?"+":""}{(latestW-weights[0].weight).toFixed(1)}kg</span></div></Card>}
+    <SubTabs tabs={TABS} active={sub} onSelect={setSub} color="#8b5cf6"/>
+
+    {sub===0&&<>
+      <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>😊 {t.health.mood}</div><div style={{display:"flex",justifyContent:"space-around"}}>{Object.entries(MOOD_META).map(([k,{c,e}])=><button key={k} onClick={()=>setMoodF(k)} style={{fontSize:26,background:mood===k?c+"22":"transparent",border:`2px solid ${mood===k?c:"transparent"}`,borderRadius:12,padding:5,cursor:"pointer",transition:"all .15s"}}>{e}</button>)}</div>{mood&&<div style={{textAlign:"center",marginTop:7,fontSize:12,fontWeight:700,color:MOOD_META[mood].c}}>{t.moods[mood]}</div>}</Card>
+      <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>💧 {t.health.water}</div><div style={{display:"flex",alignItems:"center",gap:11}}><Btn onClick={()=>addW(-1)} v="ghost" sz="sm">−</Btn><div style={{flex:1,textAlign:"center"}}><div style={{fontSize:22,fontWeight:900,color:"#06b6d4"}}>{water}<span style={{fontSize:12,fontWeight:600,opacity:.6}}>/8</span></div><div style={{fontSize:10,color:"var(--muted)"}}>glasses</div></div><Btn onClick={()=>addW(1)} sz="sm" color="#06b6d4">+</Btn></div><div style={{display:"flex",gap:4,marginTop:8}}>{Array.from({length:8},(_,i)=><div key={i} onClick={()=>setData(d=>({...d,water:{...d.water,[TODAY]:i+1}}))} style={{flex:1,height:7,borderRadius:100,background:i<water?"#06b6d4":"var(--input)",transition:"background .2s",cursor:"pointer"}}/>)}</div></Card>
+      <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>😴 {t.health.sleep}</div><div style={{display:"flex",gap:7}}><input value={slp} onChange={e=>sSlp(e.target.value)} type="number" step=".5" placeholder="7.5" style={{...S.inp}} onFocus={e=>e.target.style.borderColor="#8b5cf6"} onBlur={e=>e.target.style.borderColor="var(--border)"}/><Btn onClick={addSlp} color="#8b5cf6">Log</Btn></div>{data.sleep[TODAY]&&<div style={{marginTop:7,padding:"6px 10px",background:"#8b5cf620",borderRadius:9,fontSize:12,color:"#8b5cf6",fontWeight:600}}>Last: {data.sleep[TODAY].hours}h 😴</div>}</Card>
+      <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>⏱️ {t.health.wasted}</div><div style={{display:"grid",gridTemplateColumns:"1fr 1.5fr",gap:8,marginBottom:8}}><FInp label={t.health.mins} type="number" value={wMin} onChange={e=>sWMin(e.target.value)} placeholder="30"/><FInp label={t.health.reason} value={wR} onChange={e=>sWR(e.target.value)} placeholder="Social media..."/></div><Btn onClick={addWasted} full color="#ef4444">+ Log</Btn>{wastedTotal>0&&<div style={{marginTop:7,padding:"6px 10px",background:"#ef444420",borderRadius:9,fontSize:12,color:"#ef4444",fontWeight:700}}>Total: {wastedTotal} min ⚠️</div>}</Card>
+      <Card><div style={{fontSize:10,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>⚖️ {t.health.weight}</div><div style={{display:"flex",gap:7,marginBottom:8}}><input value={ht} onChange={e=>sHt(e.target.value)} type="number" placeholder={t.health.height} style={{...S.inp}} onFocus={e=>e.target.style.borderColor="var(--accent)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/><Btn onClick={()=>setData(d=>({...d,height:Number(ht)}))} v="ghost" sz="sm">✓</Btn></div><div style={{display:"grid",gridTemplateColumns:"1.2fr 1fr",gap:8,marginBottom:8}}><FInp label={t.health.weight} type="number" value={wt} onChange={e=>sWt(e.target.value)} placeholder="65.5"/><FInp label="Date" type="date" value={dt} onChange={e=>sDt(e.target.value)}/></div><Btn onClick={addWt} full color="#8b5cf6">+ {t.health.addWeight}</Btn>{bmi&&<div style={{marginTop:8,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:"var(--input)",borderRadius:11}}><span style={{fontWeight:700}}>{t.health.bmi}: <span style={{color:bmiC,fontSize:16}}>{bmi}</span></span><Tag color={bmiC}>{bmiL}</Tag></div>}</Card>
+    </>}
+
+    {sub===1&&<>
+      {/* Sleep History */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:18,fontWeight:900,color:"#8b5cf6"}}>{avgSleep}h</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Avg Sleep</div></Card>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:18,fontWeight:900,color:"#10b981"}}>{sleepHist.length}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Days Logged</div></Card>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:18,fontWeight:900,color:avgSleep>=7?"#10b981":"#ef4444"}}>{avgSleep>=7?"✅":"⚠️"}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>{avgSleep>=7?"Good":"Low"}</div></Card>
+      </div>
+      <Card><div style={{fontSize:9,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>14-Day Sleep (hours)</div><Bar data={sleepChartData} color="#8b5cf6" h={55}/></Card>
+      {sleepHist.length===0&&<Empty icon="😴" text="No sleep history yet"/>}
+      {sleepHist.map((d,i)=><Card key={i} style={{display:"flex",alignItems:"center",gap:11,borderLeft:`3px solid ${d.hours>=7?"#10b981":d.hours>=6?"#f59e0b":"#ef4444"}`}}><div style={{fontSize:22}}>😴</div><div style={{flex:1}}><div style={{fontSize:13,fontWeight:600}}>{d.date}</div></div><div style={{fontSize:18,fontWeight:900,color:d.hours>=7?"#10b981":d.hours>=6?"#f59e0b":"#ef4444"}}>{d.hours}h</div></Card>)}
+    </>}
+
+    {sub===2&&<>
+      {/* Weight History */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:14,fontWeight:900,color:"#8b5cf6"}}>{latestW||"—"}kg</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Current</div></Card>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:14,fontWeight:900,color:"#7c6fff"}}>{weights.length>0?weights[0].weight:"-"}kg</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Start</div></Card>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:14,fontWeight:900,color:weights.length>1&&latestW-weights[0].weight>0?"#ef4444":"#10b981"}}>{weights.length>1?`${latestW-weights[0].weight>0?"+":""}${(latestW-weights[0].weight).toFixed(1)}kg`:"—"}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Change</div></Card>
+      </div>
+      {bmi&&<Card style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px"}}><span style={{fontWeight:700}}>{t.health.bmi}: <span style={{color:bmiC,fontSize:18}}>{bmi}</span></span><Tag color={bmiC}>{bmiL}</Tag></Card>}
+      {weights.length>1&&<Card><div style={{fontSize:9,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>Weight Trend (kg)</div><Bar data={weights.slice(-10).map(w=>({l:w.date.slice(5),v:w.weight}))} color="#8b5cf6" h={55}/></Card>}
+      <Card><div style={{display:"flex",gap:7,marginBottom:8}}><input value={ht} onChange={e=>sHt(e.target.value)} type="number" placeholder={t.health.height} style={{...S.inp}} onFocus={e=>e.target.style.borderColor="var(--accent)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/><Btn onClick={()=>setData(d=>({...d,height:Number(ht)}))} v="ghost" sz="sm">✓ Height</Btn></div><div style={{display:"grid",gridTemplateColumns:"1.2fr 1fr",gap:8,marginBottom:8}}><FInp label={t.health.weight} type="number" value={wt} onChange={e=>sWt(e.target.value)} placeholder="65.5"/><FInp label="Date" type="date" value={dt} onChange={e=>sDt(e.target.value)}/></div><Btn onClick={addWt} full color="#8b5cf6">+ {t.health.addWeight}</Btn></Card>
+      {weights.length===0&&<Empty icon="⚖️" text="No weight history yet"/>}
+      {weights.slice().reverse().map((w,i)=><Card key={i} style={{display:"flex",alignItems:"center",gap:11,borderLeft:"3px solid #8b5cf6"}}><div style={{fontSize:22}}>⚖️</div><div style={{flex:1}}><div style={{fontSize:13,fontWeight:600}}>{w.date}</div></div><div style={{fontSize:18,fontWeight:900,color:"#8b5cf6"}}>{w.weight}kg</div><Btn onClick={()=>delWt(w.date)} v="dan" sz="xs">✕</Btn></Card>)}
+    </>}
+
+    {sub===3&&<>
+      {/* Wasted Time History */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:18,fontWeight:900,color:"#ef4444"}}>{avgWasted}m</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Avg/Day</div></Card>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:18,fontWeight:900,color:"#f59e0b"}}>{wastedHist.reduce((s,d)=>s+d.total,0)}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Total Min</div></Card>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:18,fontWeight:900,color:avgWasted<30?"#10b981":"#ef4444"}}>{avgWasted<30?"✅":"⚠️"}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>{avgWasted<30?"Good":"High"}</div></Card>
+      </div>
+      <Card><div style={{fontSize:9,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>14-Day Wasted (min)</div><Bar data={wastedChartData} color="#ef4444" h={55}/></Card>
+      {wastedHist.length===0&&<Empty icon="⏱️" text="No wasted time history yet"/>}
+      {wastedHist.map((d,i)=><Card key={i} style={{borderLeft:`3px solid ${d.total>60?"#ef4444":"#f59e0b"}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:11,color:"var(--muted)",fontWeight:700}}>{d.date}</span><span style={{fontSize:13,fontWeight:800,color:"#ef4444"}}>{d.total} min</span></div>
+        {d.items.map((w,j)=><div key={j} style={{fontSize:12,color:"var(--muted)",marginTop:2}}>• {w.reason||"—"}: {w.min}min</div>)}
+      </Card>)}
+    </>}
+
+    {sub===4&&<>
+      {/* Water History */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:18,fontWeight:900,color:"#06b6d4"}}>{avgWater}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Avg Glasses</div></Card>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:18,fontWeight:900,color:"#10b981"}}>{waterHist.filter(d=>d.glasses>=8).length}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Goal Days</div></Card>
+        <Card style={{textAlign:"center",padding:"11px 6px"}}><div style={{fontSize:18,fontWeight:900,color:"#06b6d4"}}>{waterHist.length}</div><div style={{fontSize:8,color:"var(--muted)",fontWeight:700,textTransform:"uppercase"}}>Days Logged</div></Card>
+      </div>
+      <Card><div style={{fontSize:9,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",marginBottom:8}}>14-Day Water (glasses)</div><Bar data={Array.from({length:14},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(13-i));const k=d.toISOString().slice(0,10);return{l:d.toLocaleDateString("en",{day:"numeric"}),v:data.water[k]||0};})} color="#06b6d4" h={55}/></Card>
+      {waterHist.length===0&&<Empty icon="💧" text="No water history yet"/>}
+      {waterHist.map((d,i)=><Card key={i} style={{display:"flex",alignItems:"center",gap:11,borderLeft:`3px solid ${d.glasses>=8?"#10b981":"#06b6d4"}`}}><div style={{fontSize:22}}>💧</div><div style={{flex:1}}><div style={{fontSize:13,fontWeight:600}}>{d.date}</div></div><div style={{fontSize:18,fontWeight:900,color:d.glasses>=8?"#10b981":"#06b6d4"}}>{d.glasses}/8</div>{d.glasses>=8&&<Tag color="#10b981">✓ Goal</Tag>}</Card>)}
+    </>}
   </div>;
 }
 
